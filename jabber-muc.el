@@ -152,6 +152,12 @@ Fields available:
   :type 'string
   :group 'jabber-chat)
 
+(defcustom jabber-muc-display-enter-leave-announcements t
+  "`t' enables the displaying of an announcement every time someone
+enters or leaves a room. `nil' disables these announcements."
+  :type 'boolean
+  :group 'jabber-chat)
+
 (defcustom jabber-muc-private-header-line-format
   '(" " (:eval (jabber-jid-resource jabber-chatting-with))
     " in " (:eval (jabber-jid-displayname (jabber-jid-user jabber-chatting-with)))
@@ -297,14 +303,14 @@ in the user entering/staying in the room."
 			   (jabber-jid-user (plist-get new-plist 'jid))
 			   ">")))
   (cond
-   ((null old-plist)
-    ;; User enters the room
-    (concat nickname " enters the room ("
-	    (plist-get new-plist 'role)
-	    (unless (string= (plist-get new-plist 'affiliation) "none")
-	      (concat ", " (plist-get new-plist 'affiliation)))
-	    ")"))
-
+    ((null old-plist)
+     (when jabber-muc-display-enter-leave-announcements
+       ;; User enters the room
+       (concat nickname
+               " enters the room ("
+               (plist-get new-plist 'role)
+               (unless (string= (plist-get new-plist 'affiliation) "none")
+                 (concat ", " (plist-get new-plist 'affiliation))) ")")))
    ;; If affiliation changes, the role change is usually the logical
    ;; one, so don't report it separately.
    ((not (string= (plist-get old-plist 'affiliation)
@@ -1081,26 +1087,28 @@ Return nil if X-MUC is nil."
 				       (jabber-jid-user jid)
 				       ">")))))
 	  (jabber-muc-remove-participant group nickname)
-	  (with-current-buffer (jabber-muc-create-buffer jc group)
-	    (jabber-maybe-print-rare-time
-	     (ewoc-enter-last
-	      jabber-chat-ewoc
-	      (list :muc-notice
-		    (cond
-		     ((member "301" status-codes)
-		      (concat name " has been banned"
-			      (when actor (concat " by " actor))
-			      (when reason (concat " - '" reason "'"))))
-		     ((member "307" status-codes)
-		      (concat name " has been kicked"
-			      (when actor (concat " by " actor))
-			      (when reason (concat " - '" reason "'"))))
-		     ((member "303" status-codes)
-		      (concat name " changes nickname to "
-			      (jabber-xml-get-attribute item 'nick)))
-		     (t
-		      (concat name " has left the chatroom")))
-		    :time (current-time))))))))
+      (when (or jabber-muc-display-enter-leave-announcements
+                (cl-intersection '("301" "307" "303") status-codes :test 'string=))
+        (with-current-buffer (jabber-muc-create-buffer jc group)
+          (jabber-maybe-print-rare-time
+           (ewoc-enter-last
+            jabber-chat-ewoc
+            (list :muc-notice
+                  (cond
+                    ((member "301" status-codes)
+                     (concat name " has been banned"
+                             (when actor (concat " by " actor))
+                             (when reason (concat " - '" reason "'"))))
+                    ((member "307" status-codes)
+                     (concat name " has been kicked"
+                             (when actor (concat " by " actor))
+                             (when reason (concat " - '" reason "'"))))
+                    ((member "303" status-codes)
+                     (concat name " changes nickname to "
+                             (jabber-xml-get-attribute item 'nick)))
+                    (t
+                     (concat name " has left the chatroom")))
+                  :time (current-time)))))))))
      (t 
       ;; someone is entering
 
